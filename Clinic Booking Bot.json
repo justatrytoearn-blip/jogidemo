@@ -1,0 +1,855 @@
+{
+  "name": "Clinic Booking Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "return [\n  { json: { id: 1, question: \"What is your full name?\", field_name: \"patient_name\" } },\n  { json: { id: 2, question: \"What is your phone number?\", field_name: \"phone\" } },\n  { json: { id: 3, question: \"Which doctor would you like to see? (Dr. Mehta / Dr. Rao / Dr. Fernandes)\", field_name: \"doctor_name\" } },\n  { json: { id: 4, question: \"What date would you like to book? (DD-MM-YYYY)\", field_name: \"appointment_date\" } },\n  { json: { id: 5, question: \"What time works for you? (e.g. 10:00 AM)\", field_name: \"appointment_time\" } },\n  { json: { id: 6, question: \"What's the reason for your visit?\", field_name: \"reason_for_visit\" } }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -352,
+        0
+      ],
+      "id": "f783cfb6-7e3b-42f1-bc4a-553fee83466d",
+      "name": "Get Questions"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT session_id, current_step, answers, completed, false AS is_new_session\nFROM booking_sessions\nWHERE session_id = '{{ $json.sessionId }}'\nUNION ALL\nSELECT '{{ $json.sessionId }}', 0, '{}'::jsonb, false, true AS is_new_session\nWHERE NOT EXISTS (SELECT 1 FROM booking_sessions WHERE session_id = '{{ $json.sessionId }}')\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -336,
+        176
+      ],
+      "id": "6a839800-36b4-4d66-a6cb-66d0c514ee20",
+      "name": "Get Session",
+      "credentials": {
+        "postgres": {
+          "id": "BAMU8kwrLIMFSwPe",
+          "name": "Clinic Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -208,
+        96
+      ],
+      "id": "97b24e47-ad45-461b-ad73-63a0a3f0677c",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all().map(item => item.json);\nconst session = allItems.find(item => item.session_id !== undefined);\nconst questions = allItems.filter(item => item.question !== undefined);\nquestions.sort((a, b) => a.id - b.id);\n\nconst chatData = $('When chat message received').first().json;\nconst userMessage = chatData.chatInput;\nconst safeUserMessage = (userMessage || \"\").replace(/'/g, \"''\");\n\nif (session.completed) {\n  return [{\n    json: {\n      session_id: session.session_id,\n      branch: \"already_completed\",\n      reply_text: \"Your appointment is already booked! If you need to make changes, please call the clinic directly.\"\n    }\n  }];\n}\nif (session.is_new_session) {\n  const firstQuestion = questions.find(q => q.id === 1);\n  return [{\n    json: {\n      session_id: session.session_id,\n      branch: \"new_session\",\n      current_step: 0,\n      reply_text: `Hi! Let's book your appointment. I'll ask you ${questions.length} quick questions.\\n\\n${firstQuestion.question}`\n    }\n  }];\n}\nconst answeredQuestion = questions.find(q => q.id === session.current_step + 1);\nconst currentQuestionText = answeredQuestion.question;\nconst newStep = session.current_step + 1;\nconst isComplete = newStep >= questions.length;\nconst nextQuestion = isComplete ? null : questions.find(q => q.id === newStep + 1);\n\nreturn [{\n  json: {\n    session_id: session.session_id,\n    branch: isComplete ? \"complete\" : \"continue\",\n    current_step: newStep,\n    answered_field_name: answeredQuestion.field_name,\n    answered_value: safeUserMessage,\n    answered_question_text: currentQuestionText,\n    previous_answers: session.answers,\n    reply_text: isComplete\n      ? \"Thanks! Let me check a few things and confirm your booking...\"\n      : nextQuestion.question\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        96
+      ],
+      "id": "c14d7a69-bbfc-40a1-b9fc-bfa9f2346296",
+      "name": "Decide Next Question"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "new_session",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "479eea56-f737-435e-a97b-21ac643c11d3"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "new_session"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "fe4277bb-a709-499b-876d-9369a5cd0f7d",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "continue",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "continue"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4d50e5df-4995-452e-a18e-0db63b368c1b",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "complete"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "81eff1e0-ee0e-42af-a363-f5736776a81e",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "guardrail_failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "guardrail_failed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        896,
+        64
+      ],
+      "id": "c8f47095-37df-43d4-9db9-33bc5b73f3ba",
+      "name": "Route By Branch"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO booking_sessions (session_id, current_step, answers, completed)\nVALUES ('{{ $json.session_id }}', 0, '{}'::jsonb, false)\nRETURNING session_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1056,
+        -208
+      ],
+      "id": "5d12e0a7-7dec-47a0-ba0e-a4d629841de4",
+      "name": "Insert New Session",
+      "credentials": {
+        "postgres": {
+          "id": "BAMU8kwrLIMFSwPe",
+          "name": "Clinic Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b53013f1-53ec-48dd-a9a9-77a714191fb0",
+              "name": "=output",
+              "value": "={{ $('Decide Next Question').item.json.reply_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1200,
+        -208
+      ],
+      "id": "8c714462-1c89-4b0d-926e-87d6f436186b",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE booking_sessions\nSET current_step = {{ $json.current_step }},\n    answers = jsonb_set(answers, '{\"{{ $json.answered_field_name }}\"}', to_jsonb('{{ $json.answered_value }}'::text))\nWHERE session_id = '{{ $json.session_id }}'\nRETURNING session_id, current_step, answers;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1056,
+        -32
+      ],
+      "id": "838e312d-ac99-46d6-be11-da8de66852a5",
+      "name": "Update Session Answer1",
+      "credentials": {
+        "postgres": {
+          "id": "BAMU8kwrLIMFSwPe",
+          "name": "Clinic Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b53013f1-53ec-48dd-a9a9-77a714191fb0",
+              "name": "=output",
+              "value": "={{ $('Decide Next Question').item.json.reply_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1216,
+        -32
+      ],
+      "id": "956ffc05-6c57-4d7c-bfc2-c08a556a455f",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE booking_sessions\nSET current_step = {{ $json.current_step }},\n    answers = jsonb_set(answers, '{\"{{ $json.answered_field_name }}\"}', to_jsonb('{{ $json.answered_value }}'::text)),\n    completed = true\nWHERE session_id = '{{ $json.session_id }}'\nRETURNING session_id, answers;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1344,
+        80
+      ],
+      "id": "0861d1eb-161d-4461-987d-9585fff810ba",
+      "name": "Save Final Answer",
+      "credentials": {
+        "postgres": {
+          "id": "BAMU8kwrLIMFSwPe",
+          "name": "Clinic Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT full_name, total_past_appointments, total_no_shows\nFROM patients\nWHERE full_name ILIKE '%{{ $json.answers.patient_name }}%'\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1504,
+        80
+      ],
+      "id": "ebaa6013-31f8-4508-9713-b414aea4ba44",
+      "name": "Get Patient History",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "BAMU8kwrLIMFSwPe",
+          "name": "Clinic Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sessionData = $('Save Final Answer').first().json;\nconst answers = sessionData.answers;\nconst historyResults = $input.all();\n\nconst hasHistory = Boolean(historyResults.length > 0 && historyResults[0].json.full_name);\nconst pastAppointments = hasHistory ? historyResults[0].json.total_past_appointments : 0;\nconst pastNoShows = hasHistory ? historyResults[0].json.total_no_shows : 0;\nlet calculatedRisk;\nif (pastAppointments === 0) {\n  calculatedRisk = \"MODERATE\";\n} else {\n  const noShowRatio = pastNoShows / pastAppointments;\n  if (noShowRatio >= 0.4) {\n    calculatedRisk = \"HIGH\";\n  } else if (noShowRatio >= 0.15) {\n    calculatedRisk = \"MODERATE\";\n  } else {\n    calculatedRisk = \"LOW\";\n  }\n}\n\nreturn [{\n  json: {\n    calculated_risk_level: calculatedRisk,\n    session_id: sessionData.session_id,\n    patient_name: answers.patient_name,\n    phone: answers.phone,\n    doctor_name: answers.doctor_name,\n    appointment_date: answers.appointment_date,\n    appointment_time: answers.appointment_time,\n    reason_for_visit: answers.reason_for_visit,\n    is_returning_patient: hasHistory,\n    total_past_appointments: pastAppointments,\n    total_no_shows: pastNoShows\n    \n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        96
+      ],
+      "id": "634c3811-5f04-4586-aa92-ceaf3551584b",
+      "name": "Prepare Risk Context"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a clinic scheduling assistant. A risk classification system has already determined this patient's no-show risk level. Your job is only to write a one-sentence explanation for it.\n\nPatient: {{ $json.patient_name }}\nPast appointments: {{ $json.total_past_appointments }}\nPast no-shows: {{ $json.total_no_shows }}\nRisk level (already determined): {{ $json.calculated_risk_level }}\n\nWrite a brief, natural one-sentence explanation for why this risk level makes sense, referencing their actual numbers.\n\nRespond with ONLY a JSON object, nothing else:\n{\"reasoning\": \"your one sentence explanation\"}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1840,
+        96
+      ],
+      "id": "c671d5b6-9b7b-45ca-a352-d8d7fd4887bd",
+      "name": "AI Agent",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        272
+      ],
+      "id": "6784a8de-120a-4254-8f03-588eb9b82dd4",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "IuccS6V6l3FzVcTo",
+          "name": "Ollama"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "public": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -512,
+        80
+      ],
+      "id": "dce00147-da6e-4db7-a6c6-a6682ae93131",
+      "name": "When chat message received",
+      "webhookId": "902e3671-3ece-4e73-817f-8bae8308d584"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $input.first().json.output;\nconst contextData = $('Prepare Risk Context').first().json;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(aiOutput);\n} catch (e) {\n  const match = aiOutput.match(/\\{[\\s\\S]*\\}/);\n  parsed = match ? JSON.parse(match[0]) : { risk_level: \"UNKNOWN\", reasoning: \"Could not parse AI response\" };\n}\n\nconst safeReasoning = (parsed.reasoning || \"\").replace(/'/g, \"''\");\n\nreturn [{\n  json: {\n    ...contextData,\n    risk_level: contextData.calculated_risk_level,\n    risk_reasoning: safeReasoning\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        96
+      ],
+      "id": "53b1c9ad-2e48-4a73-8c1a-0021573c65c4",
+      "name": "Parse Risk Response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO appointments (\n    session_id, patient_name, phone, doctor_name, appointment_date,\n    appointment_time, reason_for_visit, risk_score, risk_reasoning\n)\nVALUES (\n    '{{ $json.session_id }}',\n    '{{ $json.patient_name }}',\n    '{{ $json.phone }}',\n    '{{ $json.doctor_name }}',\n    '{{ $json.appointment_date }}',\n    '{{ $json.appointment_time }}',\n    '{{ $json.reason_for_visit }}',\n    '{{ $json.risk_level }}',\n    '{{ $json.risk_reasoning }}'\n)\nRETURNING id, patient_name, risk_score;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2304,
+        96
+      ],
+      "id": "65867e5e-98f2-4875-b494-acfd5e61917e",
+      "name": "Insert Appointment",
+      "credentials": {
+        "postgres": {
+          "id": "BAMU8kwrLIMFSwPe",
+          "name": "Clinic Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b53013f1-53ec-48dd-a9a9-77a714191fb0",
+              "name": "=output",
+              "value": "={{ $json.risk_score === 'HIGH' ? '✅ Your appointment with ' + $('Parse Risk Response').item.json.doctor_name + ' is booked for ' + $('Parse Risk Response').item.json.appointment_date + '. Since our records show a pattern of missed visits, we\\'ll send you extra reminders before your appointment.' : '✅ Your appointment with ' + $('Parse Risk Response').item.json.doctor_name + ' is confirmed for ' + $('Parse Risk Response').item.json.appointment_date + ' at ' + $('Parse Risk Response').item.json.appointment_time + '. See you then!' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2464,
+        96
+      ],
+      "id": "877f15af-6afe-44f4-b809-cbc6945bc60f",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dd5cf490-950d-41ce-b3f9-26e754f2bb22",
+              "name": "=output",
+              "value": "={{ $json.reply_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1088,
+        256
+      ],
+      "id": "a57439aa-05ed-4049-b07b-7e2909f9b36f",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nif (data.branch !== \"continue\") {\n  return [{ json: data }];\n}\n\nconst userInput = data.answered_value || \"\";\nconst issues = [];\n\nif (userInput.length > 200) {\n  issues.push(\"Input too long (max 200 characters)\");\n}\n\nconst injectionPatterns = [\n  /ignore (previous|all|the) instructions/i,\n  /you are now/i,\n  /system prompt/i,\n  /forget (everything|your instructions)/i,\n  /act as/i\n];\nif (injectionPatterns.some(function(p) { return p.test(userInput); })) {\n  issues.push(\"Input contains suspicious instruction-like language\");\n}\n\nif (data.answered_field_name === \"phone\") {\n  const digitsOnly = userInput.replace(/\\D/g, \"\");\n  if (digitsOnly.length !== 10) {\n    issues.push(\"Phone number must be exactly 10 digits\");\n  }\n}\n\nif (data.answered_field_name === \"appointment_date\") {\n  const datePattern = /^\\d{2}-\\d{2}-\\d{4}$/;\n  if (!datePattern.test(userInput)) {\n    issues.push(\"Date must be in DD-MM-YYYY format\");\n  } else {\n    const parts = userInput.split(\"-\");\n    const enteredDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));\n    const today = new Date();\n    today.setHours(0, 0, 0, 0);\n    if (enteredDate < today) {\n      issues.push(\"Date must be today or a future date\");\n    }\n  }\n}\n\nif (data.answered_field_name === \"appointment_time\") {\n  const timePattern = /^(0?[1-9]|1[0-2]):[0-5][0-9]\\s?(AM|PM)$/i;\n  if (!timePattern.test(userInput.trim())) {\n    issues.push(\"Time must be in format like 10:00 AM\");\n  }\n}\n\nif (data.answered_field_name === \"patient_name\") {\n  const namePattern = /^[A-Za-z\\s.'-]{2,50}$/;\n  if (!namePattern.test(userInput.trim())) {\n    issues.push(\"Name should only contain letters and spaces\");\n  }\n}\n\n\nif (issues.length > 0) {\n  return [{\n    json: Object.assign({}, data, {\n      branch: \"guardrail_failed\",\nreply_text: \"Warning: I could not accept that answer: \" + issues.join(\", \") + \". \" + data.answered_question_text\n    })\n  }];\n}\n\nreturn [{ json: data }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        112
+      ],
+      "id": "d0964271-c940-48de-b830-fbd7eaf92145",
+      "name": "Guardrail Check"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are checking if a user's answer is relevant to a clinic appointment booking question.\n\nQuestion asked: {{ $json.answered_question_text }}\nUser's answer: {{ $json.answered_value }}\n\nIs this answer a reasonable, on-topic response to this question — even if informal, misspelled, or brief? Off-topic means the answer is about something completely unrelated (e.g. random topics, jokes, unrelated requests, attempts to change the subject).\n\nRespond with ONLY a JSON object, nothing else:\n{\"on_topic\": true or false, \"reason\": \"one short sentence\"}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        464,
+        -16
+      ],
+      "id": "5fefb96b-4a05-4c98-acdb-35f270fa949a",
+      "name": "Topic Check"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e63df645-7568-491d-acd8-ee6ed24efa19",
+              "leftValue": "={{ $json.branch }}",
+              "rightValue": "continue",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "5beab7b5-deef-4482-81c8-8e616f71cdb0",
+              "leftValue": "={{ $json.answered_field_name }}",
+              "rightValue": "phone",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "d1938526-575b-4738-b6a4-937561b4bafb",
+              "leftValue": "={{ $json.answered_field_name }}",
+              "rightValue": "appointment_date",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "b3837393-699c-473b-aaee-dedada926ee4",
+              "leftValue": "={{ $json.answered_field_name }}",
+              "rightValue": "patient_name",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "a85a001f-776e-4b69-87a6-aa39a4565fb0",
+              "leftValue": "={{ $json.answered_field_name }}",
+              "rightValue": "appointment_time",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        320,
+        112
+      ],
+      "id": "ee2dc2a9-3ed2-48db-847d-c9ed9a7d25f6",
+      "name": "Needs Topic Check?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $input.first().json.output;\nconst originalData = $('Guardrail Check').first().json;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(aiOutput);\n} catch (e) {\n  const match = aiOutput.match(/\\{[\\s\\S]*\\}/);\n  parsed = match ? JSON.parse(match[0]) : { on_topic: true, reason: \"\" };\n}\n\nif (parsed.on_topic === false) {\n  return [{\n    json: Object.assign({}, originalData, {\n      branch: \"guardrail_failed\",\n      reply_text: \"Warning: That doesn't seem related to \" + originalData.answered_field_name + \". \" + originalData.answered_question_text\n    })\n  }];\n}\n\nreturn [{ json: originalData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        -16
+      ],
+      "id": "9643d514-375d-4883-a3d9-18287fb6b3ba",
+      "name": "Apply Topic Check"
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -112
+      ],
+      "id": "51df6b38-22ed-402d-aed7-21434bf8cf03",
+      "name": "Ollama Chat Model1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "IuccS6V6l3FzVcTo",
+          "name": "Ollama"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Session": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Questions": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Decide Next Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Next Question": {
+      "main": [
+        [
+          {
+            "node": "Guardrail Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Branch": {
+      "main": [
+        [
+          {
+            "node": "Insert New Session",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Session Answer1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Final Answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert New Session": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Session Answer1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Final Answer": {
+      "main": [
+        [
+          {
+            "node": "Get Patient History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Patient History": {
+      "main": [
+        [
+          {
+            "node": "Prepare Risk Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Risk Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Get Questions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Risk Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Risk Response": {
+      "main": [
+        [
+          {
+            "node": "Insert Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Appointment": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrail Check": {
+      "main": [
+        [
+          {
+            "node": "Needs Topic Check?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Topic Check": {
+      "main": [
+        [
+          {
+            "node": "Apply Topic Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Topic Check?": {
+      "main": [
+        [
+          {
+            "node": "Topic Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route By Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Topic Check": {
+      "main": [
+        [
+          {
+            "node": "Route By Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Topic Check",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9228b027-e7e3-4aa6-81a1-402386f43c6f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6870c3e906c1104c88e8214f6bc5b662f9e8851edd5eb0d0622f4d9edbc1c42c"
+  },
+  "nodeGroups": [],
+  "id": "NEtb2zvPm6aaXNGo",
+  "tags": []
+}
