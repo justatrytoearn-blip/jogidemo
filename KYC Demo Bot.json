@@ -1,0 +1,725 @@
+{
+  "name": "KYC Demo Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -1040,
+        -32
+      ],
+      "id": "7fec1fa1-fd71-4ed5-af71-97a1938da751",
+      "name": "When chat message received",
+      "webhookId": "aa71f0fb-8c65-4d31-aad3-eb8b5252002e"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -576,
+        -176
+      ],
+      "id": "11c13332-fbec-4ec0-9e1e-53effe18b7ec",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/data/kyc_questions.xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -800,
+        -176
+      ],
+      "id": "e342165d-58c5-487c-89ea-ca6be7480f51",
+      "name": "Read/Write Files from Disk",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -448,
+        -16
+      ],
+      "id": "5b503ef4-26a3-4ca4-819e-68bc6ffa2c6a",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all().map(item => item.json);\n\nconst session = allItems.find(item => item.session_id !== undefined);\nconst questions = allItems.filter(item => item.question !== undefined);\nquestions.sort((a, b) => a.id - b.id);\n\n// Grab the user's typed message from the original Chat Trigger data\nconst chatData = $('When chat message received').first().json;\nconst userMessage = chatData.chatInput;\nconst safeUserMessage = userMessage.replace(/'/g, \"''\");\n\nif (session.is_new_session) {\n  // Brand new conversation — just ask Question 1, nothing to save yet\n  const firstQuestion = questions.find(q => q.id === 1);\n  return [{\n    json: {\n      session_id: session.session_id,\n      branch: \"new_session\",\n      current_step: 0,\n      next_question_id: firstQuestion.id,\n      next_field_name: firstQuestion.field_name,\n      reply_text: `Welcome! I'll ask you ${questions.length} quick questions for KYC verification.\\n\\n${firstQuestion.question}`\n    }\n  }];\n}\n\n// Returning user — userMessage is the answer to the question they were last asked\nconst answeredQuestion = questions.find(q => q.id === session.current_step + 1);\nconst newStep = session.current_step + 1;\nconst isComplete = newStep >= questions.length;\n\nconst nextQuestion = isComplete ? null : questions.find(q => q.id === newStep + 1);\n\nreturn [{\n  json: {\n    session_id: session.session_id,\n    branch: isComplete ? \"complete\" : \"continue\",\n    current_step: newStep,\n    answered_field_name: answeredQuestion.field_name,\n    answered_value: safeUserMessage,\n    previous_answers: session.answers,\n    next_question_id: nextQuestion ? nextQuestion.id : null,\n    next_field_name: nextQuestion ? nextQuestion.field_name : null,\n    reply_text: isComplete\n      ? \"Thank you! I've collected all your details. Let me review them now...\"\n      : nextQuestion.question\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        -16
+      ],
+      "id": "93e9e3ac-a1f8-4864-94f3-a38e7f8f7ee8",
+      "name": "Decide Next Question"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ed70abef-aef1-4d65-8941-e2bcb860fe61",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "new_session",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "new_session"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a81313ff-800c-4ac4-8e03-ca015267eccb",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "continue",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "continue"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "36a791a4-3f56-4fe7-b658-92ae75356efb",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "complete"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6ebfdd5f-8fa7-422e-8f46-890913ab36b0",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "guardrail_failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "guardrail_failed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        32,
+        -32
+      ],
+      "id": "13e875ff-7939-4283-8c15-335bcf50b996",
+      "name": "Route By Branch",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT session_id, current_step, answers, completed, false AS is_new_session\nFROM kyc_sessions\nWHERE session_id = $1\nUNION ALL\nSELECT $1::text, 0, '{}'::jsonb, false, true AS is_new_session\nWHERE NOT EXISTS (SELECT 1 FROM kyc_sessions WHERE session_id = $1)\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $json.sessionId }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -720,
+        80
+      ],
+      "id": "1fee1a1a-a8e9-488a-8c3d-9a378c0773f5",
+      "name": "Get session",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "rRqwfI7yroEe5AZ9",
+          "name": "KYC Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO kyc_sessions (session_id, current_step, answers, completed)\nVALUES ('{{ $json.session_id }}', 0, '{}'::jsonb, false)\nRETURNING session_id;",
+        "options": {
+          "queryReplacement": ""
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        224,
+        -176
+      ],
+      "id": "f7ff47d9-525d-43ad-abce-c31aa2a15048",
+      "name": "Insert New Session",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "rRqwfI7yroEe5AZ9",
+          "name": "KYC Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5692bc99-a299-4ca9-9986-8246dee5fed1",
+              "name": "output",
+              "value": "={{ $('Decide Next Question').item.json.reply_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        448,
+        -176
+      ],
+      "id": "078e8cec-b3d7-464b-aa11-58c9649869b5",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE kyc_sessions\nSET current_step = {{ $json.current_step }},\n    answers = jsonb_set(answers, '{\"{{ $json.answered_field_name }}\"}', to_jsonb('{{ $json.answered_value }}'::text))\nWHERE session_id = '{{ $json.session_id }}'\nRETURNING session_id, current_step, answers;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        -32
+      ],
+      "id": "13b332e3-588d-4cea-9480-6a84693f0ad5",
+      "name": "Update Session Answer",
+      "credentials": {
+        "postgres": {
+          "id": "rRqwfI7yroEe5AZ9",
+          "name": "KYC Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "64144180-8df3-4dd6-9546-4dc9a95e7455",
+              "name": "output",
+              "value": "={{ $('Decide Next Question').item.json.reply_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        512,
+        -16
+      ],
+      "id": "0da90ea8-fa76-468d-a0a4-d591d2f27ec2",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE kyc_sessions\nSET current_step = {{ $json.current_step }},\n    answers = jsonb_set(answers, '{\"{{ $json.answered_field_name }}\"}', to_jsonb('{{ $json.answered_value }}'::text)),\n    completed = true\nWHERE session_id = '{{ $json.session_id }}'\nRETURNING session_id, answers;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        208,
+        112
+      ],
+      "id": "0a303a2c-1071-428b-b9e6-1ad475d2967a",
+      "name": "Save Final Answer",
+      "credentials": {
+        "postgres": {
+          "id": "rRqwfI7yroEe5AZ9",
+          "name": "KYC Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst answers = data.answers;\n\nreturn [{\n  json: {\n    session_id: data.session_id,\n    full_name: answers.full_name || '',\n    dob: answers.dob || '',\n    address: answers.address || '',\n    id_type: answers.id_type || '',\n    id_number: answers.id_number || '',\n    phone: answers.phone || '',\n    email: answers.email || '',\n    occupation: answers.occupation || '',\n    income_range: answers.income_range || '',\n    is_pep: answers.is_pep || ''\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        144
+      ],
+      "id": "c71e4904-c00f-4f8f-9160-21d60c891766",
+      "name": "Prepare Final Record"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO customer_kyc (\n    session_id, full_name, dob, address, id_type, id_number,\n    phone, email, occupation, income_range, is_pep,\n    ai_validation_status, ai_notes\n)\nVALUES (\n    '{{ $json.session_id }}',\n    '{{ $json.full_name }}',\n    '{{ $json.dob }}',\n    '{{ $json.address }}',\n    '{{ $json.id_type }}',\n    '{{ $json.id_number }}',\n    '{{ $json.phone }}',\n    '{{ $json.email }}',\n    '{{ $json.occupation }}',\n    '{{ $json.income_range }}',\n    '{{ $json.is_pep }}',\n    '{{ $json.ai_validation_status }}',\n    '{{ $json.ai_notes }}'\n)\nRETURNING id, full_name, ai_validation_status, submitted_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1120,
+        144
+      ],
+      "id": "e50f104c-39f2-4b71-8ed4-fe3cb639c095",
+      "name": "Insert Final KYC Record",
+      "credentials": {
+        "postgres": {
+          "id": "rRqwfI7yroEe5AZ9",
+          "name": "KYC Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "42d7e182-c8be-4a96-b4a3-f34738641884",
+              "name": "output",
+              "value": "={{ $json.ai_validation_status === 'PASS' ? '✅ Thank you! Your KYC verification is complete and approved. Reference ID: ' + $json.id : '⚠️ Thank you! Your details have been submitted, but our review flagged something for manual checking: ' + $json.ai_notes + '. Reference ID: ' + $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1280,
+        144
+      ],
+      "id": "9246a03f-e55a-4e10-bead-e8170dc7abc2",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a KYC (Know Your Customer) compliance reviewer. Review the following customer information and check for any red flags.\n\nCustomer details:\n- Full Name: {{ $json.full_name }}\n- Date of Birth: {{ $json.dob }}\n- Address: {{ $json.address }}\n- ID Type: {{ $json.id_type }}\n- ID Number: {{ $json.id_number }}\n- Phone: {{ $json.phone }}\n- Email: {{ $json.email }}\n- Occupation: {{ $json.occupation }}\n- Income Range: {{ $json.income_range }}\n- Is Politically Exposed Person: {{ $json.is_pep }}\n\nCheck for these specific issues:\n1. Does the name look like a real, plausible full name (not gibberish or a placeholder)?\n2. Is the date of birth in a valid, realistic format (DD-MM-YYYY) and a plausible age (not a future date, not over 120 years old)?\n3. Does the ID number format roughly match the stated ID type (e.g., PAN is 10 characters like ABCDE1234F, Aadhaar is 12 digits)?\n4. Does the email look like a valid, properly formatted email address?\n5. Is the phone number 10 digits?\n\nRespond with ONLY a JSON object in this exact format, nothing else before or after. The \"notes\" field must never be empty — always give a brief reason, even for a PASS (e.g. \"All fields appear valid and consistent.\"):\n{\"status\": \"PASS\" or \"FLAGGED\", \"notes\": \"a short one-sentence explanation\"}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        656,
+        144
+      ],
+      "id": "6eaf9c32-fd2a-4a60-ae62-0b2efd265a4b",
+      "name": "AI Agent",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        688,
+        336
+      ],
+      "id": "48a85ea0-b536-4e55-be92-fb8ee3ca3502",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "q1h2Hm3yWW1QP0i7",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $input.first().json.output;\nconst originalData = $('Prepare Final Record').first().json;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(aiOutput);\n} catch (e) {\n  // If the AI added any extra text around the JSON, try to extract just the {...} part\n  const match = aiOutput.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    parsed = JSON.parse(match[0]);\n  } else {\n    parsed = { status: \"ERROR\", notes: \"Could not parse AI response\" };\n  }\n}\n\nreturn [{\n  json: {\n    ...originalData,\n    ai_validation_status: parsed.status,\n    ai_notes: parsed.notes\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        144
+      ],
+      "id": "962e69a1-c2f6-46c8-9ec4-10531737a608",
+      "name": "Parse AI Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Guardrails only apply while the user is actively answering a question\n// (\"new_session\" and \"complete\" branches don't have user-typed answers to check)\nif (data.branch !== \"continue\") {\n  return [{ json: data }];\n}\n\nconst userInput = data.answered_value || \"\";\nconst issues = [];\n\n// Guardrail 1: Reject absurdly long input (basic abuse/spam protection)\nif (userInput.length > 200) {\n  issues.push(\"Input too long (max 200 characters)\");\n}\n\n// Guardrail 2: Detect common prompt injection attempts\nconst injectionPatterns = [\n  /ignore (previous|all|the) instructions/i,\n  /you are now/i,\n  /system prompt/i,\n  /forget (everything|your instructions)/i,\n  /act as/i\n];\nconst looksLikeInjection = injectionPatterns.some(pattern => pattern.test(userInput));\nif (looksLikeInjection) {\n  issues.push(\"Input contains suspicious instruction-like language\");\n}\n\n// Guardrail 3: Field-specific format checks\nif (data.answered_field_name === \"phone\") {\n  const digitsOnly = userInput.replace(/\\D/g, \"\");\n  if (digitsOnly.length !== 10) {\n    issues.push(\"Phone number must be exactly 10 digits\");\n  }\n}\n\nif (data.answered_field_name === \"email\") {\n  const emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n  if (!emailPattern.test(userInput)) {\n    issues.push(\"Email format looks invalid\");\n  }\n}\n\n// If any guardrail failed, override the branch to re-ask the same question\nif (issues.length > 0) {\n  return [{\n    json: {\n      ...data,\n      branch: \"guardrail_failed\",\n      guardrail_issues: issues,\n      reply_text: `⚠️ I couldn't accept that answer: ${issues.join(\", \")}. Could you try again?\\n\\n${data.reply_text.includes('?') ? '' : ''}Please re-answer: ` + (data.answered_field_name ? `(same question as before)` : \"\")\n    }\n  }];\n}\n\nreturn [{ json: data }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -16
+      ],
+      "id": "5980c340-6444-4d47-a3b9-1683649663b3",
+      "name": "Guardrail Check"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "196b1ee7-ae8f-4006-9229-7771ae3f8e0c",
+              "name": "output",
+              "value": "={{ $json.reply_text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        176,
+        336
+      ],
+      "id": "8f135b4d-c25e-4741-b908-7edb0f2a4b80",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatNvidia",
+      "typeVersion": 1,
+      "position": [
+        528,
+        336
+      ],
+      "id": "c75a2633-ad38-451d-bb22-53a99d9e9196",
+      "name": "NVIDIA Nemotron Chat Model",
+      "credentials": {
+        "nvidiaApi": {
+          "id": "1KQMvxyJNaQK3hVo",
+          "name": "NVIDIA Nemotron account"
+        }
+      },
+      "disabled": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Decide Next Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Next Question": {
+      "main": [
+        [
+          {
+            "node": "Guardrail Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Branch": {
+      "main": [
+        [
+          {
+            "node": "Insert New Session",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Session Answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Final Answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        []
+      ]
+    },
+    "Get session": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Insert New Session": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        []
+      ]
+    },
+    "Update Session Answer": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Final Answer": {
+      "main": [
+        [
+          {
+            "node": "Prepare Final Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Final Record": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Final KYC Record": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Insert Final KYC Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrail Check": {
+      "main": [
+        [
+          {
+            "node": "Route By Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        []
+      ]
+    },
+    "NVIDIA Nemotron Chat Model": {
+      "ai_languageModel": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "cae40b34-e0ef-4517-be9a-ced9fa76bf38",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e07ddfc6c6cd47b251f5cbd892ee375195bf7ee70fc63835af2a6ef67d4e962e"
+  },
+  "nodeGroups": [],
+  "id": "6vBACNia5n6BJlsp",
+  "tags": []
+}
